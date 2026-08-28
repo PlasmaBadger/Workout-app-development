@@ -8,6 +8,7 @@
 import SwiftUI
 import Charts
 import UniformTypeIdentifiers
+import Combine
 
 struct ContentView: View {
     @State private var selectedTab = AppTab.today
@@ -16,7 +17,7 @@ struct ContentView: View {
     @State private var editingTemplate: WorkoutTemplate?
     @State private var editingSession: WorkoutSession?
     @State private var templates = WorkoutTemplate.samples
-    @State private var sessions = WorkoutSession.samples
+    @State private var sessions: [WorkoutSession] = []
 
     var body: some View {
         TabView(selection: $selectedTab) {
@@ -24,7 +25,7 @@ struct ContentView: View {
                 .tabItem { Label("Today", systemImage: "sun.max.fill") }.tag(AppTab.today)
             TemplatesView(templates: $templates, startWorkout: { showingWorkout = true }, addTemplate: { showingNewTemplate = true }, editTemplate: { editingTemplate = $0 }, deleteTemplate: deleteTemplate)
                 .tabItem { Label("Templates", systemImage: "square.stack.3d.up.fill") }.tag(AppTab.templates)
-            ProgressView(sessions: $sessions, editSession: { editingSession = $0 }, deleteSession: deleteSession)
+            ProgressView(sessions: $sessions, editSession: { editingSession = $0 }, deleteSession: deleteSession, clearHistory: { sessions.removeAll() })
                 .tabItem { Label("Progress", systemImage: "chart.xyaxis.line") }.tag(AppTab.progress)
         }
         .tint(Brand.coral)
@@ -175,8 +176,9 @@ private struct TemplatesView: View {
 }
 
 private struct ProgressView: View {
-    @Binding var sessions: [WorkoutSession]; let editSession: (WorkoutSession) -> Void; let deleteSession: (WorkoutSession) -> Void
+    @Binding var sessions: [WorkoutSession]; let editSession: (WorkoutSession) -> Void; let deleteSession: (WorkoutSession) -> Void; let clearHistory: () -> Void
     @State private var showingExporter = false
+    @State private var showingClearConfirmation = false
     var body: some View {
         NavigationStack {
             ScrollView { VStack(alignment: .leading, spacing: 22) {
@@ -206,6 +208,16 @@ private struct ProgressView: View {
                     Button { showingExporter = true } label: { Image(systemName: "square.and.arrow.up") }
                     .accessibilityLabel("Export progress as CSV")
                 }
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { showingClearConfirmation = true } label: { Image(systemName: "trash") }
+                        .accessibilityLabel("Clear workout history")
+                }
+            }
+            .alert("Clear workout history?", isPresented: $showingClearConfirmation) {
+                Button("Clear History", role: .destructive, action: clearHistory)
+                Button("Cancel", role: .cancel) { }
+            } message: {
+                Text("This removes all logged workouts from this session.")
             }
             .fileExporter(isPresented: $showingExporter, document: CSVDocument(sessions: sessions), contentType: .commaSeparatedText, defaultFilename: "TrainLog-progress") { _ in }
         }
@@ -220,14 +232,108 @@ private struct WorkoutLogView: View {
     var body: some View {
         NavigationStack {
             List {
+                Section {
+                    RestTimerView()
+                }
                 Section { Picker("Template", selection: $selectedTemplate) { ForEach(WorkoutTemplate.samples) { template in Text(template.name).tag(template) } } }
                 Section {
-                    HStack { VStack(alignment: .leading, spacing: 4) { Text("Bench Press").font(.headline); Text("Last time: 72.5 kg x 8  •  RPE 8").font(.caption).foregroundStyle(Brand.muted) }; Spacer(); Image(systemName: "arrow.clockwise").foregroundStyle(Brand.mint) }
+                    HStack { VStack(alignment: .leading, spacing: 4) { Text("Bench Press").font(.headline); Text("Last time: 72.5 kg x 8  •  RPE 8").font(.caption).foregroundStyle(.white.opacity(0.72)) }; Spacer(); Image(systemName: "arrow.clockwise").foregroundStyle(Brand.mint) }
+                    HStack {
+                        Text("Set").frame(width: 28, alignment: .leading)
+                        Text("Weight").frame(maxWidth: .infinity)
+                        Text("Reps").frame(width: 78)
+                        Text("RPE").frame(width: 34)
+                    }
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(.white.opacity(0.72))
                     ForEach($sets) { $set in SetRow(set: $set) }
                     Button { sets.append(LoggedSet(weight: sets.last?.weight ?? 70, reps: sets.last?.reps ?? 8, rpe: 8)) } label: { Label("Add set", systemImage: "plus.circle.fill") }
                 } header: { Text("Exercise 1 of 5") }
-            }.navigationTitle("Log workout").toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }; ToolbarItem(placement: .confirmationAction) { Button("Finish") { onFinish(WorkoutSession(date: .now, template: selectedTemplate.name, volume: 12480, duration: 45)) }.fontWeight(.bold) } }
+            }
+            .listStyle(.insetGrouped)
+            .scrollContentBackground(.hidden)
+            .background(Brand.ink)
+            .foregroundStyle(.white)
+            .navigationTitle("Log workout")
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }; ToolbarItem(placement: .confirmationAction) { Button("Finish") { onFinish(WorkoutSession(date: .now, template: selectedTemplate.name, volume: 12480, duration: 45)) }.fontWeight(.bold) } }
+            .preferredColorScheme(.dark)
         }
+    }
+}
+
+private struct RestTimerView: View {
+    private let timer = Timer.publish(every: 1, on: .main, in: .common).autoconnect()
+    @State private var remainingSeconds = 90
+    @State private var isRunning = false
+
+    var body: some View {
+        HStack(spacing: 14) {
+            ZStack {
+                Circle()
+                    .stroke(Brand.coral.opacity(0.18), lineWidth: 5)
+                Circle()
+                    .trim(from: 0, to: CGFloat(remainingSeconds) / 120)
+                    .stroke(Brand.coral, style: StrokeStyle(lineWidth: 5, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                Image(systemName: "timer")
+                    .foregroundStyle(Brand.coral)
+            }
+            .frame(width: 52, height: 52)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Rest timer")
+                    .font(.headline)
+                Text(timeString)
+                    .font(.system(.title3, design: .monospaced).weight(.semibold))
+                    .foregroundStyle(.white)
+            }
+
+            Spacer()
+
+            Menu {
+                ForEach([60, 90, 120, 180], id: \.self) { seconds in
+                    Button("\(seconds / 60) min") {
+                        remainingSeconds = seconds
+                        isRunning = false
+                    }
+                }
+            } label: {
+                Image(systemName: "ellipsis.circle")
+                    .font(.title3)
+                    .foregroundStyle(.white.opacity(0.72))
+            }
+            .accessibilityLabel("Rest timer duration")
+
+            Button {
+                isRunning.toggle()
+            } label: {
+                Image(systemName: isRunning ? "pause.fill" : "play.fill")
+                    .font(.headline)
+                    .foregroundStyle(.white)
+                    .frame(width: 38, height: 38)
+                    .background(Brand.coral, in: Circle())
+            }
+            .disabled(remainingSeconds == 0)
+            .accessibilityLabel(isRunning ? "Pause rest timer" : "Start rest timer")
+        }
+        .onReceive(timer) { _ in
+            guard isRunning else { return }
+            if remainingSeconds > 0 {
+                remainingSeconds -= 1
+            } else {
+                isRunning = false
+            }
+        }
+        .contextMenu {
+            Button("Reset to 90 seconds", systemImage: "arrow.counterclockwise") {
+                remainingSeconds = 90
+                isRunning = false
+            }
+        }
+    }
+
+    private var timeString: String {
+        String(format: "%02d:%02d", remainingSeconds / 60, remainingSeconds % 60)
     }
 }
 
@@ -235,7 +341,62 @@ private struct LoggedSet: Identifiable { let id = UUID(); var weight: Double; va
 
 private struct SetRow: View {
     @Binding var set: LoggedSet
-    var body: some View { HStack(spacing: 10) { Text("Set").font(.caption.bold()).foregroundStyle(Brand.muted).frame(width: 28); Stepper(value: $set.weight, in: 0...300, step: 2.5) { Text("\(set.weight, specifier: "%.1f") kg").font(.subheadline.monospacedDigit()) }; Stepper(value: $set.reps, in: 1...50) { Text("\(set.reps) reps").font(.subheadline.monospacedDigit()) }; Menu { ForEach(1...10, id: \.self) { value in Button("RPE \(value)") { set.rpe = value } } } label: { Text("R\(set.rpe)").font(.caption.bold()).foregroundStyle(Brand.coral) } } }
+    var body: some View {
+        HStack(spacing: 8) {
+            Text("Set")
+                .font(.caption.bold())
+                .foregroundStyle(.white.opacity(0.72))
+                .frame(width: 28, alignment: .leading)
+            WeightControl(weight: $set.weight)
+                .frame(maxWidth: .infinity)
+            RepsControl(reps: $set.reps)
+                .frame(width: 78)
+            Menu {
+                ForEach(1...10, id: \.self) { value in
+                    Button("RPE \(value)") { set.rpe = value }
+                }
+            } label: {
+                Text("R\(set.rpe)")
+                    .font(.caption.bold())
+                    .foregroundStyle(Brand.coral)
+                    .frame(width: 34)
+            }
+        }
+    }
+}
+
+private struct WeightControl: View {
+    @Binding var weight: Double
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Button { weight = max(0, weight - 2.5) } label: { Image(systemName: "minus") }
+            Text("\(weight, specifier: "%.1f")")
+                .font(.caption.monospacedDigit().weight(.semibold))
+                .frame(minWidth: 42)
+            Button { weight = min(300, weight + 2.5) } label: { Image(systemName: "plus") }
+        }
+        .buttonStyle(.borderless)
+        .foregroundStyle(Brand.mint)
+        .controlSize(.small)
+    }
+}
+
+private struct RepsControl: View {
+    @Binding var reps: Int
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Button { reps = max(1, reps - 1) } label: { Image(systemName: "minus") }
+            Text("\(reps)")
+                .font(.caption.monospacedDigit().weight(.semibold))
+                .frame(width: 18)
+            Button { reps = min(50, reps + 1) } label: { Image(systemName: "plus") }
+        }
+        .buttonStyle(.borderless)
+        .foregroundStyle(Brand.mint)
+        .controlSize(.small)
+    }
 }
 
 private struct NewTemplateView: View {
