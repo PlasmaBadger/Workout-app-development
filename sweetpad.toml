@@ -1,0 +1,5 @@
+project = "Workout/Workout.xcodeproj"
+scheme = "Workout"
+developer_dir = "/Applications/Xcode.app/Contents/Developer"
+destination = "platform=iOS Simulator,name=iPhone 17"
+configuration = "Debug"
