@@ -145,9 +145,9 @@ private struct WorkoutTemplate: Identifiable, Hashable {
     let id: UUID; var name: String; var detail: String; var exercises: [ExerciseDefinition]; var color: Color
     init(id: UUID = UUID(), name: String, detail: String, exercises: [ExerciseDefinition], color: Color) { self.id = id; self.name = name; self.detail = detail; self.exercises = exercises; self.color = color }
     static let samples = [
-        WorkoutTemplate(name: "Upper A", detail: "5 exercises  •  45 min", exercises: [ExerciseDefinition(name: "Bench Press", startingWeight: 72.5), ExerciseDefinition(name: "Barbell Row", startingWeight: 60), ExerciseDefinition(name: "Overhead Press", startingWeight: 35), ExerciseDefinition(name: "Lat Pulldown", startingWeight: 55), ExerciseDefinition(name: "Cable Curl", startingWeight: 20)], color: Brand.coral),
-        WorkoutTemplate(name: "Lower A", detail: "4 exercises  •  40 min", exercises: [ExerciseDefinition(name: "Back Squat", startingWeight: 80), ExerciseDefinition(name: "Romanian Deadlift", startingWeight: 70), ExerciseDefinition(name: "Leg Press", startingWeight: 120), ExerciseDefinition(name: "Calf Raise", startingWeight: 50)], color: Brand.mint),
-        WorkoutTemplate(name: "Full Body", detail: "6 exercises  •  55 min", exercises: [ExerciseDefinition(name: "Deadlift", startingWeight: 90), ExerciseDefinition(name: "Incline Press", startingWeight: 60), ExerciseDefinition(name: "Goblet Squat", startingWeight: 24), ExerciseDefinition(name: "Pull Up"), ExerciseDefinition(name: "Lateral Raise", startingWeight: 10), ExerciseDefinition(name: "Plank")], color: .orange)
+        WorkoutTemplate(name: "Upper A", detail: "5 exercises  •  45 min", exercises: [ExerciseDefinition(name: "Bench Press", startingWeight: 160), ExerciseDefinition(name: "Barbell Row", startingWeight: 132), ExerciseDefinition(name: "Overhead Press", startingWeight: 77), ExerciseDefinition(name: "Lat Pulldown", startingWeight: 121), ExerciseDefinition(name: "Cable Curl", startingWeight: 44)], color: Brand.coral),
+        WorkoutTemplate(name: "Lower A", detail: "4 exercises  •  40 min", exercises: [ExerciseDefinition(name: "Back Squat", startingWeight: 176), ExerciseDefinition(name: "Romanian Deadlift", startingWeight: 154), ExerciseDefinition(name: "Leg Press", startingWeight: 265), ExerciseDefinition(name: "Calf Raise", startingWeight: 110)], color: Brand.mint),
+        WorkoutTemplate(name: "Full Body", detail: "6 exercises  •  55 min", exercises: [ExerciseDefinition(name: "Deadlift", startingWeight: 198), ExerciseDefinition(name: "Incline Press", startingWeight: 132), ExerciseDefinition(name: "Goblet Squat", startingWeight: 53), ExerciseDefinition(name: "Pull Up"), ExerciseDefinition(name: "Lateral Raise", startingWeight: 22), ExerciseDefinition(name: "Plank")], color: .orange)
     ]
 }
 
@@ -164,10 +164,10 @@ private struct WorkoutSession: Identifiable {
     let id: UUID; var date: Date; var template: String; var volume: Int; var duration: Int; var exercises: [CompletedExercise]
     init(id: UUID = UUID(), date: Date, template: String, volume: Int, duration: Int, exercises: [CompletedExercise] = []) { self.id = id; self.date = date; self.template = template; self.volume = volume; self.duration = duration; self.exercises = exercises }
     static let samples = [
-        WorkoutSession(date: Calendar.current.date(byAdding: .day, value: -1, to: .now)!, template: "Upper A", volume: 12480, duration: 46),
-        WorkoutSession(date: Calendar.current.date(byAdding: .day, value: -4, to: .now)!, template: "Lower A", volume: 15820, duration: 42),
-        WorkoutSession(date: Calendar.current.date(byAdding: .day, value: -7, to: .now)!, template: "Upper A", volume: 11800, duration: 49),
-        WorkoutSession(date: Calendar.current.date(byAdding: .day, value: -11, to: .now)!, template: "Full Body", volume: 14600, duration: 56)
+        WorkoutSession(date: Calendar.current.date(byAdding: .day, value: -1, to: .now)!, template: "Upper A", volume: 27558, duration: 46),
+        WorkoutSession(date: Calendar.current.date(byAdding: .day, value: -4, to: .now)!, template: "Lower A", volume: 34877, duration: 42),
+        WorkoutSession(date: Calendar.current.date(byAdding: .day, value: -7, to: .now)!, template: "Upper A", volume: 26015, duration: 49),
+        WorkoutSession(date: Calendar.current.date(byAdding: .day, value: -11, to: .now)!, template: "Full Body", volume: 32187, duration: 56)
     ]
 }
 
@@ -238,7 +238,7 @@ private struct ProgressView: View {
                     HStack { Text(selectedExercise?.name ?? "Exercise volume").font(.headline); Spacer(); Text("All workouts").font(.caption.weight(.semibold)).foregroundStyle(Brand.muted) }
                     Chart(exerciseHistory) { entry in BarMark(x: .value("Date", entry.date, unit: .day), y: .value("Volume", entry.volume)).foregroundStyle(Brand.mint.gradient).cornerRadius(5) }.frame(height: 210).chartYAxis { AxisMarks(position: .leading) }.chartXAxis { AxisMarks(values: .automatic(desiredCount: 4)) }
                 }.padding(18).background(.white, in: RoundedRectangle(cornerRadius: 18))
-                HStack(spacing: 12) { MetricCard(title: "Best lift", value: "80 kg", detail: "Bench press", color: Brand.mint); MetricCard(title: "Consistency", value: "86%", detail: "Last 4 weeks", color: .orange) }
+                    HStack(spacing: 12) { MetricCard(title: "Best lift", value: "176 lb", detail: "Bench press", color: Brand.mint); MetricCard(title: "Consistency", value: "86%", detail: "Last 4 weeks", color: .orange) }
                 Text("Workout history").font(.title3.bold())
                 VStack(spacing: 0) {
                     ForEach(sessions) { session in
@@ -368,8 +368,8 @@ private struct WorkoutLogView: View {
 
     private var lastPerformanceText: String {
         guard let exercise = selectedTemplate.exercises.first(where: { $0.id == selectedExerciseID }) else { return "Add an exercise to this template" }
-        guard let previous = sessions.flatMap({ $0.exercises }).last(where: { $0.key == exercise.key }) else { return "Starting weight: \(String(format: "%.1f", exercise.startingWeight)) kg" }
-        return "Last average: \(String(format: "%.1f", previous.averageWeight)) kg"
+        guard let previous = sessions.flatMap({ $0.exercises }).last(where: { $0.key == exercise.key }) else { return "Starting weight: \(String(format: "%.1f", exercise.startingWeight)) lb" }
+        return "Last average: \(String(format: "%.1f", previous.averageWeight)) lb"
     }
 
     private func finishWorkout() {
@@ -520,11 +520,11 @@ private struct WeightControl: View {
 
     var body: some View {
         HStack(spacing: 5) {
-            Button { weight = max(0, weight - 2.5) } label: { Image(systemName: "minus") }
+            Button { weight = max(0, weight - 5) } label: { Image(systemName: "minus") }
             Text("\(weight, specifier: "%.1f")")
                 .font(.caption.monospacedDigit().weight(.semibold))
                 .frame(minWidth: 42)
-            Button { weight = min(300, weight + 2.5) } label: { Image(systemName: "plus") }
+            Button { weight = min(660, weight + 5) } label: { Image(systemName: "plus") }
         }
         .buttonStyle(.borderless)
         .foregroundStyle(Brand.mint)
@@ -555,11 +555,11 @@ private struct ExerciseEditorRow: View {
     var body: some View {
         HStack(spacing: 10) {
             TextField("Exercise name", text: $exercise.name)
-            TextField("kg", value: $exercise.startingWeight, format: .number.precision(.fractionLength(1)))
+            TextField("lb", value: $exercise.startingWeight, format: .number.precision(.fractionLength(1)))
                 .keyboardType(.decimalPad)
                 .multilineTextAlignment(.trailing)
                 .frame(width: 70)
-            Text("kg")
+            Text("lb")
                 .font(.caption)
                 .foregroundStyle(Brand.muted)
         }
@@ -632,7 +632,7 @@ private struct EditSessionView: View {
                 Section("Workout details") {
                     TextField("Template", text: $template)
                     DatePicker("Date", selection: $date, displayedComponents: .date)
-                    Stepper("Volume: \(volume) kg", value: $volume, in: 0...100000, step: 10)
+                    Stepper("Volume: \(volume) lb", value: $volume, in: 0...220000, step: 10)
                     Stepper("Duration: \(duration) min", value: $duration, in: 1...300)
                 }
             }
@@ -658,7 +658,7 @@ private struct CSVDocument: FileDocument {
                 ? ["\(formatter.string(from: session.date)),\(Self.escape(session.template)),,\(session.volume),\(session.duration),"]
                 : session.exercises.map { exercise in "\(formatter.string(from: session.date)),\(Self.escape(session.template)),\(Self.escape(exercise.name)),\(exercise.volume),\(session.duration),\(exercise.averageWeight)" }
         }
-        text = (["date,template,exercise,volume_kg,duration_minutes,average_weight_kg"] + rows).joined(separator: "\n") + "\n"
+        text = (["date,template,exercise,volume_lb,duration_minutes,average_weight_lb"] + rows).joined(separator: "\n") + "\n"
     }
 
     init(configuration: ReadConfiguration) throws {
@@ -679,7 +679,7 @@ private struct StatTile: View { let value: String; let label: String; let icon: 
 private struct MetricCard: View { let title: String; let value: String; let detail: String; let color: Color; var body: some View { VStack(alignment: .leading, spacing: 8) { Circle().fill(color).frame(width: 10, height: 10); Text(title).font(.caption).foregroundStyle(Brand.muted); Text(value).font(.title2.bold()); Text(detail).font(.caption2).foregroundStyle(Brand.muted) }.frame(maxWidth: .infinity, alignment: .leading).padding(16).background(.white, in: RoundedRectangle(cornerRadius: 16)) } }
 private struct TemplateRow: View { let template: WorkoutTemplate; let action: () -> Void; var body: some View { Button(action: action) { HStack { RoundedRectangle(cornerRadius: 5).fill(template.color).frame(width: 5, height: 42); VStack(alignment: .leading) { Text(template.name).font(.headline); Text(template.detail).font(.caption).foregroundStyle(Brand.muted) }; Spacer(); Image(systemName: "play.fill").foregroundStyle(template.color) }.padding(14).background(.white, in: RoundedRectangle(cornerRadius: 14)) }.buttonStyle(.plain) } }
 private struct TemplateCard: View { let template: WorkoutTemplate; let action: () -> Void; let edit: () -> Void; let delete: () -> Void; var body: some View { VStack(alignment: .leading, spacing: 16) { HStack { Text(template.name).font(.title3.bold()); Spacer(); Menu { Button("Edit template", systemImage: "pencil", action: edit); Button("Delete template", systemImage: "trash", role: .destructive, action: delete) } label: { Image(systemName: "ellipsis") }.accessibilityLabel("Template actions") }.foregroundStyle(Brand.ink); Text(template.exercises.map(\.name).joined(separator: "  •  ")).font(.caption).foregroundStyle(Brand.muted); Button(action: action) { Label("Start workout", systemImage: "play.fill").font(.subheadline.bold()).frame(maxWidth: .infinity).padding(12).background(template.color.opacity(0.12), in: RoundedRectangle(cornerRadius: 10)).foregroundStyle(template.color) }.buttonStyle(.plain) }.padding(18).background(.white, in: RoundedRectangle(cornerRadius: 18)) } }
-private struct SessionRow: View { let session: WorkoutSession; let edit: () -> Void; let delete: () -> Void; var body: some View { HStack { VStack(alignment: .leading) { Text(session.template).font(.headline); Text(session.date, format: .dateTime.month(.abbreviated).day()).font(.caption).foregroundStyle(Brand.muted) }; Spacer(); VStack(alignment: .trailing) { Text("\(session.volume) kg").font(.subheadline.bold()); Text("\(session.duration) min").font(.caption).foregroundStyle(Brand.muted) }; Menu { Button("Edit workout", systemImage: "pencil", action: edit); Button("Delete workout", systemImage: "trash", role: .destructive, action: delete) } label: { Image(systemName: "ellipsis.circle").foregroundStyle(Brand.muted) }.accessibilityLabel("Workout actions") }.padding(.vertical, 4) } }
+private struct SessionRow: View { let session: WorkoutSession; let edit: () -> Void; let delete: () -> Void; var body: some View { HStack { VStack(alignment: .leading) { Text(session.template).font(.headline); Text(session.date, format: .dateTime.month(.abbreviated).day()).font(.caption).foregroundStyle(Brand.muted) }; Spacer(); VStack(alignment: .trailing) { Text("\(session.volume) lb").font(.subheadline.bold()); Text("\(session.duration) min").font(.caption).foregroundStyle(Brand.muted) }; Menu { Button("Edit workout", systemImage: "pencil", action: edit); Button("Delete workout", systemImage: "trash", role: .destructive, action: delete) } label: { Image(systemName: "ellipsis.circle").foregroundStyle(Brand.muted) }.accessibilityLabel("Workout actions") }.padding(.vertical, 4) } }
 
 #Preview {
     ContentView()
