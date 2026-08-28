@@ -21,7 +21,7 @@ struct ContentView: View {
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            TodayView(templates: templates, sessions: sessions, startWorkout: { showingWorkout = true }, editSession: { editingSession = $0 }, deleteSession: deleteSession)
+            TodayView(templates: templates, sessions: sessions, startWorkout: { showingWorkout = true }, openTemplates: { selectedTab = .templates }, openHistory: { selectedTab = .progress }, editSession: { editingSession = $0 }, deleteSession: deleteSession)
                 .tabItem { Label("Today", systemImage: "sun.max.fill") }.tag(AppTab.today)
             TemplatesView(templates: $templates, startWorkout: { showingWorkout = true }, addTemplate: { showingNewTemplate = true }, editTemplate: { editingTemplate = $0 }, deleteTemplate: deleteTemplate)
                 .tabItem { Label("Templates", systemImage: "square.stack.3d.up.fill") }.tag(AppTab.templates)
@@ -172,7 +172,7 @@ private struct WorkoutSession: Identifiable {
 }
 
 private struct TodayView: View {
-    let templates: [WorkoutTemplate]; let sessions: [WorkoutSession]; let startWorkout: () -> Void; let editSession: (WorkoutSession) -> Void; let deleteSession: (WorkoutSession) -> Void
+    let templates: [WorkoutTemplate]; let sessions: [WorkoutSession]; let startWorkout: () -> Void; let openTemplates: () -> Void; let openHistory: () -> Void; let editSession: (WorkoutSession) -> Void; let deleteSession: (WorkoutSession) -> Void
     var body: some View {
         NavigationStack {
             ScrollView {
@@ -186,9 +186,9 @@ private struct TodayView: View {
                             .foregroundStyle(.white).padding(22).background(Brand.coral, in: RoundedRectangle(cornerRadius: 18))
                     }.buttonStyle(.plain)
                     HStack(spacing: 12) { StatTile(value: "4", label: "This month", icon: "flame.fill", color: Brand.coral); StatTile(value: "52.4k", label: "Total volume", icon: "scalemass.fill", color: Brand.mint) }
-                    SectionHeader(title: "Your templates", action: "See all")
+                    SectionHeader(title: "Your templates", action: "See all", onAction: openTemplates)
                     ForEach(templates.prefix(2)) { template in TemplateRow(template: template, action: startWorkout) }
-                    SectionHeader(title: "Recent sessions", action: "Progress")
+                    SectionHeader(title: "Recent sessions", action: "See all", onAction: openHistory)
                     ForEach(sessions.prefix(3)) { session in SessionRow(session: session, edit: { editSession(session) }, delete: { deleteSession(session) }) }
                 }.padding(20)
             }
@@ -304,6 +304,7 @@ private struct WorkoutLogView: View {
     @State private var selectedTemplate: WorkoutTemplate
     @State private var selectedExerciseID: UUID
     @State private var exerciseSets: [UUID: [LoggedSet]]
+    @State private var completedExerciseIDs: Set<UUID> = []
     let onFinish: (WorkoutSession, WorkoutTemplate) -> Void
 
     init(templates: [WorkoutTemplate], sessions: [WorkoutSession], onFinish: @escaping (WorkoutSession, WorkoutTemplate) -> Void) {
@@ -326,7 +327,7 @@ private struct WorkoutLogView: View {
                     Picker("Exercise", selection: $selectedExerciseID) { ForEach(selectedTemplate.exercises) { exercise in Text(exercise.name).tag(exercise.id) } }
                 }
                 Section {
-                    HStack { VStack(alignment: .leading, spacing: 4) { Text(selectedTemplate.exercises.first?.name ?? "Exercise").font(.headline); Text(lastPerformanceText).font(.caption).foregroundStyle(.white.opacity(0.72)) }; Spacer(); Image(systemName: "arrow.clockwise").foregroundStyle(Brand.mint) }
+                    HStack { VStack(alignment: .leading, spacing: 4) { Text(selectedExercise?.name ?? "Exercise").font(.headline); Text(lastPerformanceText).font(.caption).foregroundStyle(.white.opacity(0.72)) }; Spacer(); Image(systemName: completedExerciseIDs.contains(selectedExerciseID) ? "checkmark.circle.fill" : "arrow.clockwise").foregroundStyle(Brand.mint) }
                     HStack {
                         Text("Set").frame(width: 28, alignment: .leading)
                         Text("Weight").frame(maxWidth: .infinity)
@@ -343,7 +344,12 @@ private struct WorkoutLogView: View {
                         updatedSets.append(LoggedSet(weight: currentSets.last?.weight ?? selectedExercise?.startingWeight ?? 0, reps: currentSets.last?.reps ?? 8, rpe: 8))
                         exerciseSets[selectedExerciseID] = updatedSets
                     } label: { Label("Add set", systemImage: "plus.circle.fill") }
-                } header: { Text("Exercise 1 of 5") }
+                    Button(action: completeExercise) {
+                        Label(completedExerciseIDs.contains(selectedExerciseID) ? "Exercise completed" : "Complete exercise", systemImage: completedExerciseIDs.contains(selectedExerciseID) ? "checkmark.circle.fill" : "arrow.right.circle.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .disabled(completedExerciseIDs.contains(selectedExerciseID))
+                } header: { Text(exercisePositionText) }
             }
             .listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
@@ -355,6 +361,7 @@ private struct WorkoutLogView: View {
             .onChange(of: selectedTemplate) { _, newTemplate in
                 selectedExerciseID = newTemplate.exercises.first?.id ?? UUID()
                 exerciseSets = Dictionary(uniqueKeysWithValues: newTemplate.exercises.map { ($0.id, [LoggedSet(weight: $0.startingWeight, reps: 8, rpe: 8)]) })
+                completedExerciseIDs = []
             }
         }
     }
@@ -382,7 +389,22 @@ private struct WorkoutLogView: View {
         onFinish(WorkoutSession(date: .now, template: selectedTemplate.name, volume: completed.reduce(0) { $0 + $1.volume }, duration: 45, exercises: completed), updatedTemplate)
     }
 
+    private func completeExercise() {
+        guard let currentIndex = selectedTemplate.exercises.firstIndex(where: { $0.id == selectedExerciseID }) else { return }
+        completedExerciseIDs.insert(selectedExerciseID)
+        let nextExercise = selectedTemplate.exercises[(currentIndex + 1)...].first(where: { !completedExerciseIDs.contains($0.id) })
+            ?? selectedTemplate.exercises[..<currentIndex].first(where: { !completedExerciseIDs.contains($0.id) })
+        if let nextExercise {
+            selectedExerciseID = nextExercise.id
+        }
+    }
+
     private var selectedExercise: ExerciseDefinition? { selectedTemplate.exercises.first(where: { $0.id == selectedExerciseID }) }
+    private var exercisePositionText: String {
+        guard let index = selectedTemplate.exercises.firstIndex(where: { $0.id == selectedExerciseID }) else { return "Exercise" }
+        return "Exercise \(index + 1) of \(selectedTemplate.exercises.count)"
+    }
+
     private var currentSets: [LoggedSet] {
         get { exerciseSets[selectedExerciseID] ?? [] }
         set { exerciseSets[selectedExerciseID] = newValue }
@@ -652,7 +674,7 @@ private struct CSVDocument: FileDocument {
     }
 }
 
-private struct SectionHeader: View { let title: String; let action: String; var body: some View { HStack { Text(title).font(.title3.bold()); Spacer(); Text(action).font(.caption.bold()).foregroundStyle(Brand.coral) } } }
+private struct SectionHeader: View { let title: String; let action: String; let onAction: () -> Void; var body: some View { HStack { Text(title).font(.title3.bold()); Spacer(); Button(action, action: onAction).font(.caption.bold()).foregroundStyle(Brand.coral) } } }
 private struct StatTile: View { let value: String; let label: String; let icon: String; let color: Color; var body: some View { VStack(alignment: .leading, spacing: 10) { Image(systemName: icon).foregroundStyle(color); Text(value).font(.title2.bold()); Text(label).font(.caption).foregroundStyle(Brand.muted) }.frame(maxWidth: .infinity, alignment: .leading).padding(16).background(.white, in: RoundedRectangle(cornerRadius: 16)) } }
 private struct MetricCard: View { let title: String; let value: String; let detail: String; let color: Color; var body: some View { VStack(alignment: .leading, spacing: 8) { Circle().fill(color).frame(width: 10, height: 10); Text(title).font(.caption).foregroundStyle(Brand.muted); Text(value).font(.title2.bold()); Text(detail).font(.caption2).foregroundStyle(Brand.muted) }.frame(maxWidth: .infinity, alignment: .leading).padding(16).background(.white, in: RoundedRectangle(cornerRadius: 16)) } }
 private struct TemplateRow: View { let template: WorkoutTemplate; let action: () -> Void; var body: some View { Button(action: action) { HStack { RoundedRectangle(cornerRadius: 5).fill(template.color).frame(width: 5, height: 42); VStack(alignment: .leading) { Text(template.name).font(.headline); Text(template.detail).font(.caption).foregroundStyle(Brand.muted) }; Spacer(); Image(systemName: "play.fill").foregroundStyle(template.color) }.padding(14).background(.white, in: RoundedRectangle(cornerRadius: 14)) }.buttonStyle(.plain) } }
