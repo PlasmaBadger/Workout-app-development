@@ -31,7 +31,12 @@ struct ContentView: View {
         .tint(Brand.coral)
         .foregroundStyle(Brand.ink)
         .sheet(isPresented: $showingWorkout) {
-            WorkoutLogView { session in sessions.insert(session, at: 0); showingWorkout = false }
+            WorkoutLogView(templates: templates, sessions: sessions, onFinish: { session, updatedTemplate in
+                sessions.insert(session, at: 0)
+                updateTemplate(updatedTemplate)
+                updateMatchingExerciseWeights(from: session)
+                showingWorkout = false
+            })
         }
         .sheet(isPresented: $showingNewTemplate) {
             NewTemplateView { template in templates.append(template); showingNewTemplate = false }
@@ -48,6 +53,17 @@ struct ContentView: View {
         guard let index = templates.firstIndex(where: { $0.id == template.id }) else { return }
         templates[index] = template
         editingTemplate = nil
+    }
+
+    private func updateMatchingExerciseWeights(from session: WorkoutSession) {
+        for result in session.exercises {
+            for index in templates.indices {
+                let updatedExercises = templates[index].exercises.map { exercise in
+                    exercise.key == result.key ? ExerciseDefinition(id: exercise.id, name: exercise.name, startingWeight: result.averageWeight) : exercise
+                }
+                templates[index].exercises = updatedExercises
+            }
+        }
     }
 
     private func deleteTemplate(_ template: WorkoutTemplate) {
@@ -111,19 +127,42 @@ private struct BrandTitle: View {
     }
 }
 
+private struct ExerciseDefinition: Identifiable, Hashable {
+    let id: UUID
+    var name: String
+    var startingWeight: Double
+
+    init(id: UUID = UUID(), name: String, startingWeight: Double = 0) {
+        self.id = id
+        self.name = name
+        self.startingWeight = startingWeight
+    }
+
+    var key: String { name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() }
+}
+
 private struct WorkoutTemplate: Identifiable, Hashable {
-    let id: UUID; var name: String; var detail: String; var exercises: [String]; var color: Color
-    init(id: UUID = UUID(), name: String, detail: String, exercises: [String], color: Color) { self.id = id; self.name = name; self.detail = detail; self.exercises = exercises; self.color = color }
+    let id: UUID; var name: String; var detail: String; var exercises: [ExerciseDefinition]; var color: Color
+    init(id: UUID = UUID(), name: String, detail: String, exercises: [ExerciseDefinition], color: Color) { self.id = id; self.name = name; self.detail = detail; self.exercises = exercises; self.color = color }
     static let samples = [
-        WorkoutTemplate(name: "Upper A", detail: "5 exercises  •  45 min", exercises: ["Bench Press", "Barbell Row", "Overhead Press", "Lat Pulldown", "Cable Curl"], color: Brand.coral),
-        WorkoutTemplate(name: "Lower A", detail: "4 exercises  •  40 min", exercises: ["Back Squat", "Romanian Deadlift", "Leg Press", "Calf Raise"], color: Brand.mint),
-        WorkoutTemplate(name: "Full Body", detail: "6 exercises  •  55 min", exercises: ["Deadlift", "Incline Press", "Goblet Squat", "Pull Up", "Lateral Raise", "Plank"], color: .orange)
+        WorkoutTemplate(name: "Upper A", detail: "5 exercises  •  45 min", exercises: [ExerciseDefinition(name: "Bench Press", startingWeight: 72.5), ExerciseDefinition(name: "Barbell Row", startingWeight: 60), ExerciseDefinition(name: "Overhead Press", startingWeight: 35), ExerciseDefinition(name: "Lat Pulldown", startingWeight: 55), ExerciseDefinition(name: "Cable Curl", startingWeight: 20)], color: Brand.coral),
+        WorkoutTemplate(name: "Lower A", detail: "4 exercises  •  40 min", exercises: [ExerciseDefinition(name: "Back Squat", startingWeight: 80), ExerciseDefinition(name: "Romanian Deadlift", startingWeight: 70), ExerciseDefinition(name: "Leg Press", startingWeight: 120), ExerciseDefinition(name: "Calf Raise", startingWeight: 50)], color: Brand.mint),
+        WorkoutTemplate(name: "Full Body", detail: "6 exercises  •  55 min", exercises: [ExerciseDefinition(name: "Deadlift", startingWeight: 90), ExerciseDefinition(name: "Incline Press", startingWeight: 60), ExerciseDefinition(name: "Goblet Squat", startingWeight: 24), ExerciseDefinition(name: "Pull Up"), ExerciseDefinition(name: "Lateral Raise", startingWeight: 10), ExerciseDefinition(name: "Plank")], color: .orange)
     ]
 }
 
+private struct CompletedExercise: Identifiable {
+    let id: UUID
+    var name: String
+    var key: String
+    var averageWeight: Double
+    var volume: Int
+    var sets: [LoggedSet]
+}
+
 private struct WorkoutSession: Identifiable {
-    let id: UUID; var date: Date; var template: String; var volume: Int; var duration: Int
-    init(id: UUID = UUID(), date: Date, template: String, volume: Int, duration: Int) { self.id = id; self.date = date; self.template = template; self.volume = volume; self.duration = duration }
+    let id: UUID; var date: Date; var template: String; var volume: Int; var duration: Int; var exercises: [CompletedExercise]
+    init(id: UUID = UUID(), date: Date, template: String, volume: Int, duration: Int, exercises: [CompletedExercise] = []) { self.id = id; self.date = date; self.template = template; self.volume = volume; self.duration = duration; self.exercises = exercises }
     static let samples = [
         WorkoutSession(date: Calendar.current.date(byAdding: .day, value: -1, to: .now)!, template: "Upper A", volume: 12480, duration: 46),
         WorkoutSession(date: Calendar.current.date(byAdding: .day, value: -4, to: .now)!, template: "Lower A", volume: 15820, duration: 42),
@@ -179,13 +218,25 @@ private struct ProgressView: View {
     @Binding var sessions: [WorkoutSession]; let editSession: (WorkoutSession) -> Void; let deleteSession: (WorkoutSession) -> Void; let clearHistory: () -> Void
     @State private var showingExporter = false
     @State private var showingClearConfirmation = false
+    @State private var selectedExerciseKey = ""
     var body: some View {
         NavigationStack {
             ScrollView { VStack(alignment: .leading, spacing: 22) {
-                VStack(alignment: .leading, spacing: 6) { Text("Strength at a glance").font(.system(size: 32, weight: .bold, design: .rounded)); Text("Your training volume is trending up.").foregroundStyle(Brand.muted) }.padding(.top, 8)
+                VStack(alignment: .leading, spacing: 6) { Text("Strength at a glance").font(.system(size: 32, weight: .bold, design: .rounded)); Text("Track a lift across every workout.").foregroundStyle(Brand.muted) }.padding(.top, 8)
+                if exerciseOptions.isEmpty {
+                    Text("Complete a workout to start tracking exercise progress.").foregroundStyle(Brand.muted).padding(.vertical, 20)
+                } else {
+                    Picker("Exercise", selection: $selectedExerciseKey) {
+                        ForEach(exerciseOptions, id: \.key) { exercise in Text(exercise.name).tag(exercise.key) }
+                    }
+                    .pickerStyle(.menu)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 4)
+                    .background(.white, in: RoundedRectangle(cornerRadius: 12))
+                }
                 VStack(alignment: .leading, spacing: 16) {
-                    HStack { Text("Total volume").font(.headline); Spacer(); Text("Last 30 days").font(.caption.weight(.semibold)).foregroundStyle(Brand.muted) }
-                    Chart(sessions) { session in BarMark(x: .value("Date", session.date, unit: .day), y: .value("Volume", session.volume)).foregroundStyle(Brand.coral.gradient).cornerRadius(5) }.frame(height: 210).chartYAxis { AxisMarks(position: .leading) }.chartXAxis { AxisMarks(values: .automatic(desiredCount: 4)) }
+                    HStack { Text(selectedExercise?.name ?? "Exercise volume").font(.headline); Spacer(); Text("All workouts").font(.caption.weight(.semibold)).foregroundStyle(Brand.muted) }
+                    Chart(exerciseHistory) { entry in BarMark(x: .value("Date", entry.date, unit: .day), y: .value("Volume", entry.volume)).foregroundStyle(Brand.mint.gradient).cornerRadius(5) }.frame(height: 210).chartYAxis { AxisMarks(position: .leading) }.chartXAxis { AxisMarks(values: .automatic(desiredCount: 4)) }
                 }.padding(18).background(.white, in: RoundedRectangle(cornerRadius: 18))
                 HStack(spacing: 12) { MetricCard(title: "Best lift", value: "80 kg", detail: "Bench press", color: Brand.mint); MetricCard(title: "Consistency", value: "86%", detail: "Last 4 weeks", color: .orange) }
                 Text("Workout history").font(.title3.bold())
@@ -222,22 +273,60 @@ private struct ProgressView: View {
             .fileExporter(isPresented: $showingExporter, document: CSVDocument(sessions: sessions), contentType: .commaSeparatedText, defaultFilename: "TrainLog-progress") { _ in }
         }
     }
+
+    private var exerciseOptions: [(name: String, key: String)] {
+        Dictionary(grouping: sessions.flatMap { $0.exercises }, by: \.key).compactMap { key, values in
+            guard let first = values.first else { return nil }
+            return (first.name, key)
+        }.sorted { $0.name < $1.name }
+    }
+
+    private var selectedExercise: (name: String, key: String)? {
+        exerciseOptions.first(where: { $0.key == selectedExerciseKey }) ?? exerciseOptions.first
+    }
+
+    private var exerciseHistory: [ExerciseProgressEntry] {
+        guard let key = selectedExercise?.key else { return [] }
+        return sessions.flatMap { session in session.exercises.filter { $0.key == key }.map { ExerciseProgressEntry(date: session.date, volume: $0.volume) } }.sorted { $0.date < $1.date }
+    }
+}
+
+private struct ExerciseProgressEntry: Identifiable {
+    let id = UUID()
+    let date: Date
+    let volume: Int
 }
 
 private struct WorkoutLogView: View {
     @Environment(\.dismiss) private var dismiss
-    @State private var selectedTemplate = WorkoutTemplate.samples[0]
-    @State private var sets = [LoggedSet(weight: 72.5, reps: 8, rpe: 8), LoggedSet(weight: 72.5, reps: 8, rpe: 8), LoggedSet(weight: 70, reps: 9, rpe: 9)]
-    let onFinish: (WorkoutSession) -> Void
+    let templates: [WorkoutTemplate]
+    let sessions: [WorkoutSession]
+    @State private var selectedTemplate: WorkoutTemplate
+    @State private var selectedExerciseID: UUID
+    @State private var exerciseSets: [UUID: [LoggedSet]]
+    let onFinish: (WorkoutSession, WorkoutTemplate) -> Void
+
+    init(templates: [WorkoutTemplate], sessions: [WorkoutSession], onFinish: @escaping (WorkoutSession, WorkoutTemplate) -> Void) {
+        self.templates = templates
+        self.sessions = sessions
+        self.onFinish = onFinish
+        let template = templates.first ?? WorkoutTemplate(name: "Workout", detail: "0 exercises", exercises: [], color: Brand.coral)
+        _selectedTemplate = State(initialValue: template)
+        _selectedExerciseID = State(initialValue: template.exercises.first?.id ?? UUID())
+        _exerciseSets = State(initialValue: Dictionary(uniqueKeysWithValues: template.exercises.map { ($0.id, [LoggedSet(weight: $0.startingWeight, reps: 8, rpe: 8)]) }))
+    }
     var body: some View {
         NavigationStack {
             List {
                 Section {
                     RestTimerView()
                 }
-                Section { Picker("Template", selection: $selectedTemplate) { ForEach(WorkoutTemplate.samples) { template in Text(template.name).tag(template) } } }
                 Section {
-                    HStack { VStack(alignment: .leading, spacing: 4) { Text("Bench Press").font(.headline); Text("Last time: 72.5 kg x 8  •  RPE 8").font(.caption).foregroundStyle(.white.opacity(0.72)) }; Spacer(); Image(systemName: "arrow.clockwise").foregroundStyle(Brand.mint) }
+                    Picker("Template", selection: $selectedTemplate) { ForEach(templates) { template in Text(template.name).tag(template) } }
+                    Picker("Exercise", selection: $selectedExerciseID) { ForEach(selectedTemplate.exercises) { exercise in Text(exercise.name).tag(exercise.id) } }
+                }
+                Section {
+                    HStack { VStack(alignment: .leading, spacing: 4) { Text(selectedTemplate.exercises.first?.name ?? "Exercise").font(.headline); Text(lastPerformanceText).font(.caption).foregroundStyle(.white.opacity(0.72)) }; Spacer(); Image(systemName: "arrow.clockwise").foregroundStyle(Brand.mint) }
                     HStack {
                         Text("Set").frame(width: 28, alignment: .leading)
                         Text("Weight").frame(maxWidth: .infinity)
@@ -246,8 +335,14 @@ private struct WorkoutLogView: View {
                     }
                     .font(.caption2.weight(.semibold))
                     .foregroundStyle(.white.opacity(0.72))
-                    ForEach($sets) { $set in SetRow(set: $set) }
-                    Button { sets.append(LoggedSet(weight: sets.last?.weight ?? 70, reps: sets.last?.reps ?? 8, rpe: 8)) } label: { Label("Add set", systemImage: "plus.circle.fill") }
+                    ForEach(Array(currentSets.enumerated()), id: \.element.id) { index, _ in
+                        SetRow(set: Binding(get: { exerciseSets[selectedExerciseID]?[index] ?? LoggedSet(weight: 0, reps: 8, rpe: 8) }, set: { exerciseSets[selectedExerciseID]?[index] = $0 }))
+                    }
+                    Button {
+                        var updatedSets = currentSets
+                        updatedSets.append(LoggedSet(weight: currentSets.last?.weight ?? selectedExercise?.startingWeight ?? 0, reps: currentSets.last?.reps ?? 8, rpe: 8))
+                        exerciseSets[selectedExerciseID] = updatedSets
+                    } label: { Label("Add set", systemImage: "plus.circle.fill") }
                 } header: { Text("Exercise 1 of 5") }
             }
             .listStyle(.insetGrouped)
@@ -255,9 +350,42 @@ private struct WorkoutLogView: View {
             .background(Brand.ink)
             .foregroundStyle(.white)
             .navigationTitle("Log workout")
-            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }; ToolbarItem(placement: .confirmationAction) { Button("Finish") { onFinish(WorkoutSession(date: .now, template: selectedTemplate.name, volume: 12480, duration: 45)) }.fontWeight(.bold) } }
+            .toolbar { ToolbarItem(placement: .cancellationAction) { Button("Close") { dismiss() } }; ToolbarItem(placement: .confirmationAction) { Button("Finish") { finishWorkout() }.fontWeight(.bold) } }
             .preferredColorScheme(.dark)
+            .onChange(of: selectedTemplate) { _, newTemplate in
+                selectedExerciseID = newTemplate.exercises.first?.id ?? UUID()
+                exerciseSets = Dictionary(uniqueKeysWithValues: newTemplate.exercises.map { ($0.id, [LoggedSet(weight: $0.startingWeight, reps: 8, rpe: 8)]) })
+            }
         }
+    }
+
+    private var lastPerformanceText: String {
+        guard let exercise = selectedTemplate.exercises.first(where: { $0.id == selectedExerciseID }) else { return "Add an exercise to this template" }
+        guard let previous = sessions.flatMap({ $0.exercises }).last(where: { $0.key == exercise.key }) else { return "Starting weight: \(String(format: "%.1f", exercise.startingWeight)) kg" }
+        return "Last average: \(String(format: "%.1f", previous.averageWeight)) kg"
+    }
+
+    private func finishWorkout() {
+        guard !selectedTemplate.exercises.isEmpty else { return }
+        let completed = selectedTemplate.exercises.compactMap { exercise -> CompletedExercise? in
+            guard let sets = exerciseSets[exercise.id], !sets.isEmpty else { return nil }
+            let totalReps = sets.reduce(0) { $0 + $1.reps }
+            let averageWeight = totalReps == 0 ? 0 : sets.reduce(0) { $0 + ($1.weight * Double($1.reps)) } / Double(totalReps)
+            let volume = sets.reduce(0) { $0 + Int($1.weight * Double($1.reps)) }
+            return CompletedExercise(id: UUID(), name: exercise.name, key: exercise.key, averageWeight: averageWeight, volume: volume, sets: sets)
+        }
+        let updatedExercises = selectedTemplate.exercises.map { definition in
+            guard let result = completed.first(where: { $0.key == definition.key }) else { return definition }
+            return ExerciseDefinition(id: definition.id, name: definition.name, startingWeight: result.averageWeight)
+        }
+        let updatedTemplate = WorkoutTemplate(id: selectedTemplate.id, name: selectedTemplate.name, detail: selectedTemplate.detail, exercises: updatedExercises, color: selectedTemplate.color)
+        onFinish(WorkoutSession(date: .now, template: selectedTemplate.name, volume: completed.reduce(0) { $0 + $1.volume }, duration: 45, exercises: completed), updatedTemplate)
+    }
+
+    private var selectedExercise: ExerciseDefinition? { selectedTemplate.exercises.first(where: { $0.id == selectedExerciseID }) }
+    private var currentSets: [LoggedSet] {
+        get { exerciseSets[selectedExerciseID] ?? [] }
+        set { exerciseSets[selectedExerciseID] = newValue }
     }
 }
 
@@ -399,23 +527,40 @@ private struct RepsControl: View {
     }
 }
 
+private struct ExerciseEditorRow: View {
+    @Binding var exercise: ExerciseDefinition
+
+    var body: some View {
+        HStack(spacing: 10) {
+            TextField("Exercise name", text: $exercise.name)
+            TextField("kg", value: $exercise.startingWeight, format: .number.precision(.fractionLength(1)))
+                .keyboardType(.decimalPad)
+                .multilineTextAlignment(.trailing)
+                .frame(width: 70)
+            Text("kg")
+                .font(.caption)
+                .foregroundStyle(Brand.muted)
+        }
+    }
+}
+
 private struct NewTemplateView: View {
-    @Environment(\.dismiss) private var dismiss; @State private var name = ""; let onSave: (WorkoutTemplate) -> Void
-    var body: some View { NavigationStack { Form { Section("Template details") { TextField("Name", text: $name); Text("Add exercises after saving from your template list.").font(.caption).foregroundStyle(Brand.muted) } }.navigationTitle("New template").toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }; ToolbarItem(placement: .confirmationAction) { Button("Create") { onSave(WorkoutTemplate(name: name.isEmpty ? "New workout" : name, detail: "0 exercises", exercises: [], color: Brand.coral)) } } } } }
+    @Environment(\.dismiss) private var dismiss; @State private var name = ""; @State private var exercises = [ExerciseDefinition(name: "", startingWeight: 0)]; let onSave: (WorkoutTemplate) -> Void
+    var body: some View { NavigationStack { Form { Section("Template details") { TextField("Name", text: $name); ForEach($exercises) { $exercise in ExerciseEditorRow(exercise: $exercise) }; Button { exercises.append(ExerciseDefinition(name: "", startingWeight: 0)) } label: { Label("Add exercise", systemImage: "plus.circle.fill") }; Text("Starting weights become your default and update to the average completed weight.").font(.caption).foregroundStyle(Brand.muted) } }.navigationTitle("New template").toolbar { ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }; ToolbarItem(placement: .confirmationAction) { Button("Create") { let valid = exercises.filter { !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }; onSave(WorkoutTemplate(name: name.isEmpty ? "New workout" : name, detail: "\(valid.count) exercises", exercises: valid, color: Brand.coral)) } } } } }
 }
 
 private struct EditTemplateView: View {
     @Environment(\.dismiss) private var dismiss
     let template: WorkoutTemplate
     @State private var name: String
-    @State private var exercises: String
+    @State private var exercises: [ExerciseDefinition]
     let onSave: (WorkoutTemplate) -> Void
 
     init(template: WorkoutTemplate, onSave: @escaping (WorkoutTemplate) -> Void) {
         self.template = template
         self.onSave = onSave
         _name = State(initialValue: template.name)
-        _exercises = State(initialValue: template.exercises.joined(separator: ", "))
+        _exercises = State(initialValue: template.exercises)
     }
 
     var body: some View {
@@ -423,7 +568,8 @@ private struct EditTemplateView: View {
             Form {
                 Section("Template details") {
                     TextField("Name", text: $name)
-                    TextField("Exercises, separated by commas", text: $exercises, axis: .vertical)
+                    ForEach($exercises) { $exercise in ExerciseEditorRow(exercise: $exercise) }
+                    Button { exercises.append(ExerciseDefinition(name: "", startingWeight: 0)) } label: { Label("Add exercise", systemImage: "plus.circle.fill") }
                 }
             }
             .navigationTitle("Edit template")
@@ -431,8 +577,8 @@ private struct EditTemplateView: View {
                 ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Save") {
-                        let updatedExercises = exercises.split(separator: ",").map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-                        onSave(WorkoutTemplate(id: template.id, name: name.isEmpty ? "New workout" : name, detail: "\(updatedExercises.count) exercises", exercises: updatedExercises, color: template.color))
+                        let definitions = exercises.filter { !$0.name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+                        onSave(WorkoutTemplate(id: template.id, name: name.isEmpty ? "New workout" : name, detail: "\(definitions.count) exercises", exercises: definitions, color: template.color))
                     }
                 }
             }
@@ -485,8 +631,12 @@ private struct CSVDocument: FileDocument {
 
     init(sessions: [WorkoutSession]) {
         let formatter = ISO8601DateFormatter()
-        let rows = sessions.map { "\(formatter.string(from: $0.date)),\(Self.escape($0.template)),\($0.volume),\($0.duration)" }
-        text = (["date,template,volume_kg,duration_minutes"] + rows).joined(separator: "\n") + "\n"
+        let rows = sessions.flatMap { session in
+            session.exercises.isEmpty
+                ? ["\(formatter.string(from: session.date)),\(Self.escape(session.template)),,\(session.volume),\(session.duration),"]
+                : session.exercises.map { exercise in "\(formatter.string(from: session.date)),\(Self.escape(session.template)),\(Self.escape(exercise.name)),\(exercise.volume),\(session.duration),\(exercise.averageWeight)" }
+        }
+        text = (["date,template,exercise,volume_kg,duration_minutes,average_weight_kg"] + rows).joined(separator: "\n") + "\n"
     }
 
     init(configuration: ReadConfiguration) throws {
@@ -506,7 +656,7 @@ private struct SectionHeader: View { let title: String; let action: String; var 
 private struct StatTile: View { let value: String; let label: String; let icon: String; let color: Color; var body: some View { VStack(alignment: .leading, spacing: 10) { Image(systemName: icon).foregroundStyle(color); Text(value).font(.title2.bold()); Text(label).font(.caption).foregroundStyle(Brand.muted) }.frame(maxWidth: .infinity, alignment: .leading).padding(16).background(.white, in: RoundedRectangle(cornerRadius: 16)) } }
 private struct MetricCard: View { let title: String; let value: String; let detail: String; let color: Color; var body: some View { VStack(alignment: .leading, spacing: 8) { Circle().fill(color).frame(width: 10, height: 10); Text(title).font(.caption).foregroundStyle(Brand.muted); Text(value).font(.title2.bold()); Text(detail).font(.caption2).foregroundStyle(Brand.muted) }.frame(maxWidth: .infinity, alignment: .leading).padding(16).background(.white, in: RoundedRectangle(cornerRadius: 16)) } }
 private struct TemplateRow: View { let template: WorkoutTemplate; let action: () -> Void; var body: some View { Button(action: action) { HStack { RoundedRectangle(cornerRadius: 5).fill(template.color).frame(width: 5, height: 42); VStack(alignment: .leading) { Text(template.name).font(.headline); Text(template.detail).font(.caption).foregroundStyle(Brand.muted) }; Spacer(); Image(systemName: "play.fill").foregroundStyle(template.color) }.padding(14).background(.white, in: RoundedRectangle(cornerRadius: 14)) }.buttonStyle(.plain) } }
-private struct TemplateCard: View { let template: WorkoutTemplate; let action: () -> Void; let edit: () -> Void; let delete: () -> Void; var body: some View { VStack(alignment: .leading, spacing: 16) { HStack { Text(template.name).font(.title3.bold()); Spacer(); Menu { Button("Edit template", systemImage: "pencil", action: edit); Button("Delete template", systemImage: "trash", role: .destructive, action: delete) } label: { Image(systemName: "ellipsis") }.accessibilityLabel("Template actions") }.foregroundStyle(Brand.ink); Text(template.exercises.joined(separator: "  •  ")).font(.caption).foregroundStyle(Brand.muted); Button(action: action) { Label("Start workout", systemImage: "play.fill").font(.subheadline.bold()).frame(maxWidth: .infinity).padding(12).background(template.color.opacity(0.12), in: RoundedRectangle(cornerRadius: 10)).foregroundStyle(template.color) }.buttonStyle(.plain) }.padding(18).background(.white, in: RoundedRectangle(cornerRadius: 18)) } }
+private struct TemplateCard: View { let template: WorkoutTemplate; let action: () -> Void; let edit: () -> Void; let delete: () -> Void; var body: some View { VStack(alignment: .leading, spacing: 16) { HStack { Text(template.name).font(.title3.bold()); Spacer(); Menu { Button("Edit template", systemImage: "pencil", action: edit); Button("Delete template", systemImage: "trash", role: .destructive, action: delete) } label: { Image(systemName: "ellipsis") }.accessibilityLabel("Template actions") }.foregroundStyle(Brand.ink); Text(template.exercises.map(\.name).joined(separator: "  •  ")).font(.caption).foregroundStyle(Brand.muted); Button(action: action) { Label("Start workout", systemImage: "play.fill").font(.subheadline.bold()).frame(maxWidth: .infinity).padding(12).background(template.color.opacity(0.12), in: RoundedRectangle(cornerRadius: 10)).foregroundStyle(template.color) }.buttonStyle(.plain) }.padding(18).background(.white, in: RoundedRectangle(cornerRadius: 18)) } }
 private struct SessionRow: View { let session: WorkoutSession; let edit: () -> Void; let delete: () -> Void; var body: some View { HStack { VStack(alignment: .leading) { Text(session.template).font(.headline); Text(session.date, format: .dateTime.month(.abbreviated).day()).font(.caption).foregroundStyle(Brand.muted) }; Spacer(); VStack(alignment: .trailing) { Text("\(session.volume) kg").font(.subheadline.bold()); Text("\(session.duration) min").font(.caption).foregroundStyle(Brand.muted) }; Menu { Button("Edit workout", systemImage: "pencil", action: edit); Button("Delete workout", systemImage: "trash", role: .destructive, action: delete) } label: { Image(systemName: "ellipsis.circle").foregroundStyle(Brand.muted) }.accessibilityLabel("Workout actions") }.padding(.vertical, 4) } }
 
 #Preview {
